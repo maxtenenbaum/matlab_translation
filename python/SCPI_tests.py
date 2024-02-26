@@ -1,11 +1,25 @@
 import pyvisa
+from functions import test_connection
 
 # Create resource manager
 rm = pyvisa.ResourceManager()
 
-# Connect to Keithley (14 is standard GPIB address for Model 6485)
-instrument_address = "GPIB::14"
-picoammeter = rm.open_resource(instrument_address)
+# Set GPIB address to Model 6485 Default
+address = "GPIB::14"
+
+# Checkpoint to verify connection
+if test_connection(address):
+    print("Connection success...")
+
+    picoammeter = rm.open_resource(address)
+
+
+
+
+else:
+    print("Connection failure... Please check instrument and try again.")
+
+
 
 # Send SCPI commands
 picoammeter.write("*RST")                  # Reset to GPIB defaults
