@@ -1,0 +1,495 @@
+%% Run Experiment
+function [File,itPlot] = runIT3(File)
+%% Constants
+% Values
+MATLAB_COLOR = { ...
+    '#0072BD', ...   % blue
+    '#D95319', ...   % orange
+    '#EDB120', ...   % yellow
+    '#7E2F8E', ...   % purple
+    '#77AC30', ...   % green
+    '#4DBEEE', ...   % cyan
+    '#A2142F', ...  % maroon
+    "#FF0000", ...
+    "#00FF00", ...
+    "#0000FF", ...
+    "#00FFFF", ...
+    "#FF00FF", ...
+    "#FFFF00"};
+MARKER_TYPE = { ...
+    'o', ... % circle
+    '+', ... % plus
+    '*', ... % asterisk
+    'x', ... % cross
+    's', ... % square
+    'd', ... % diamond
+    '^', ... % up-point triangle
+    'v', ... % down-point triangle
+    '>', ... % right-point triangle
+    '<', ... % left-point triangle
+    'p', ... % pentagon
+    'h'};   % hexagon
+MAX_CURRENT = 20e-3; 	% compliance at 20 mA
+OVERFLOW = 1e37;        % overflow reading
+ANNOT_DIM = [0.84 .65 .1 .1];
+FONT_SIZE = 20;
+FIG_WIDTH = 960;
+FIG_HEIGHT = 720;
+ARR_LENGTH = 1e5;
+
+%% Variables
+expID = File.Experiment.ID;
+gpib_arr = File.Instrument.Object;
+numOfPoints = File.Instrument.Settings.Buffer.Points;
+formatData = File.Instrument.Settings.Format;
+isBinary = contains2(formatData,'bin');
+samplingRate = File.Instrument.Settings.Speed.SamplingRate;
+samplingPeriod = File.Instrument.Settings.Speed.SamplingPeriod;
+offset_arr = File.Instrument.Settings.RelativeOffset;
+channelSelect = File.Experiment.Channels.Number;
+channelNameList = File.Experiment.Channels.Name;
+channelSelect_len = length(channelSelect);
+savePath = File.Path;
+
+% Initialize variablesS
+time_fix_arr = zeros(ARR_LENGTH,1);
+current_fix_matrix = zeros(ARR_LENGTH,channelSelect_len);
+animatedLines = gobjects(channelSelect_len,1);
+legend_arr = strings(channelSelect_len,1);
+isCheckSteadyState = false;
+isCheckConstant = false;
+isCheckTimeStep = false;
+
+% Temporary Save file
+fileDate = datestr(now,'yymmdd_HHMMSS');
+fileName = sprintf('%s_tempIT.mat',fileDate);
+[filesList,~] = getAllFiles(savePath,'mat');
+filesList_name = {filesList.name};
+tempFile_idx = contains(filesList_name,'temp');
+if ~isempty(tempFile_idx)
+    tempFile_name = filesList(tempFile_idx).name;
+    delete(tempFile_name);
+end
+tempFile = fullfile(savePath,fileName);
+% Instantiation
+% samplingRateControl = rateControl(samplingRate);   % sampling rate control
+
+%% Determine Experiment
+switch expID
+    case 'IT'
+        isCheckConstant = true;
+        stepNum = 1;
+        voltageBias = File.Experiment.Parameters.VoltageBias;
+        timeStep = File.Experiment.Parameters.Duration;
+        quitStep = false;
+        ctFigNum = 1;
+
+    case 'IV'
+        isCheckSteadyState = true;
+        stepNum = length(File.StepData);
+        voltageBias = File.StepData(stepNum).VoltageBias;
+        File.StepData(stepNum).Completed = false;
+        File.StepData(stepNum).Completed = false;
+        bufferLength = File.Experiment.Parameters.BufferLength;
+        timeStep = inf;
+        ctFigNum = channelSelect_len + 1;
+
+    case {'CAP','STEP'}
+        isCheckTimeStep = true;
+        stepNum = length(File.StepData);
+        timeStep = File.Experiment.Parameters.TimeStep;
+        voltageBias = File.StepData(stepNum).VoltageBias;
+        bufferLength = timeStep / samplingPeriod;
+        File.Experiment.Parameters.BufferLength = bufferLength;
+        File.StepData(stepNum).Completed = false;
+        ctFigNum = channelSelect_len + 1;
+        File.StepData(stepNum).Completed = false;
+end
+% samplingPeriod_len = 10;
+% samplingPeriod_arr = zeros(samplingPeriod_len,1);
+current_fix_arr = zeros(1,channelSelect_len);
+mean_arr = zeros(channelSelect_len,1);
+if ~isCheckConstant
+    File.Instrument.Processing(stepNum).Step = stepNum;
+    File.Instrument.Processing(stepNum).Buffer = zeros(bufferLength,channelSelect_len);
+    numOfSteps = File.Experiment.Parameters.NumberOfSteps;
+    File.Instrument.Processing(stepNum).Values = zeros(1,channelSelect_len);
+end
+
+dateTimeStart = getDateTime();
+for channel_idx = 1:channelSelect_len
+    if isCheckConstant
+        File.Data(channel_idx).Channel = channelNameList(channel_idx);
+        File.Data(channel_idx).Voltage = voltageBias;
+        File.Data(channel_idx).DateTimeStart = dateTimeStart;
+    else
+        File.StepData(stepNum).Data(channel_idx).Channel = channelNameList(channel_idx);
+        File.StepData(stepNum).Data(channel_idx).Voltage = voltageBias;
+        File.StepData(stepNum).Data(channel_idx).DateTimeStart = dateTimeStart;
+    end
+end
+
+%% Plot Setup
+% Plot
+trendLine = gobjects(1,channelSelect_len);
+exclude = gobjects(1,channelSelect_len);
+if isCheckConstant
+    ctPlot_name = sprintf('Volage Bias: {\\itV}_{bias} =  %+.2f V',voltageBias);
+    itPlot = figure(1);
+else
+    if voltageBias == 0
+        stepName = sprintf('Step %d: {\\itV}_{bias} = %.2f V',stepNum,voltageBias);
+    else
+        stepName = sprintf('Step %d: {\\itV}_{bias} = %+.2f V',stepNum,voltageBias);
+    end
+    ctPlot_name = stepName;
+    itPlot = figure(ctFigNum);
+%     itPlot = [];
+end
+
+% if checkConstant
+    itPlot.WindowState = 'maximized';
+    clf;
+    ax = gca;
+    xlabel('Time (s)');
+    ylabel('Current (A)');
+    title('Current vs. Time');
+    subtitle(ctPlot_name);
+    box on;
+    set(itPlot,'CloseRequestFcn','set(fig_obj,"Visible","off");');
+    annot = gobjects(1);
+
+    % Legend
+    set(0,'CurrentFigure',itPlot);
+    for channel_idx = 1:channelSelect_len
+        color = MATLAB_COLOR{channel_idx};
+        marker = MARKER_TYPE{channel_idx};
+        animatedLines(channel_idx) = animatedline;
+        animatedLines(channel_idx).Color = color;
+        animatedLines(channel_idx).LineStyle = 'none';
+        animatedLines(channel_idx).Marker = marker;
+        animatedLines(channel_idx).MarkerSize = 4;
+        animatedLines(channel_idx).MarkerFaceColor = color;
+        animatedLines(channel_idx).MarkerEdgeColor = color;
+        if isCheckSteadyState
+            %         animatedLines(channel_idx).MaximumNumPoints = bufferLength;
+            animatedLines(channel_idx).MaximumNumPoints = Inf;
+        end
+    end
+    leg = legend(channelNameList);
+    leg.AutoUpdate = 'off';
+    leg.Location = 'southeastoutside';
+    ax.FontSize = FONT_SIZE;
+
+    % Instantiation
+    buttonHandleCT = uicontrol( ...                  	% button handle
+        'Style','PushButton', ...
+        'String','STOP', ...
+        'BackgroundColor','r', ...
+        'Callback','delete(gcbf)');
+% end
+
+%% Function
+if ~isCheckConstant
+    quitStep = File.StepData(stepNum).Completed;
+end
+% Start voltage bias
+setVoltageBias2(File,voltageBias);  % set voltage bias
+clearBufferReading(File);
+fprintf('\n');
+
+% Collecting data
+fprintf('Collecting data...\n');
+sampleNum = 0;
+startTime = tic;
+timestamp0 = startTime;
+while ~quitStep
+    timestamp_off = toc(startTime);
+    sampleNum = sampleNum + 1;
+    File.Instrument.Processing(stepNum).NumberOfSamples = sampleNum;
+    if sampleNum == 1
+        timeOffset = timestamp_off;
+    end
+    % Keithley 6482 timestamp resets after 99,999.999 s
+    % manually capturing timestamp
+    timestamp = timestamp_off - timeOffset;
+    time_fix = (sampleNum - 1) * samplingPeriod;
+    %     time_fix_arr_alloc = [time_fix_arr;time_fix];
+    %     time_fix_arr = time_fix_arr_alloc;
+    time_fix_arr(sampleNum) = time_fix;
+
+    % Take Measurement
+    for channel_idx = 1:channelSelect_len
+        channelNum = channelSelect(channel_idx);
+        [gpibNum,channel] = channelToDeviceChannel(channelNum);
+        if channel_idx == 1
+            timestamp2 = toc(timestamp0);
+        end
+        gpib = gpib_arr(gpibNum);
+        %         if numOfPoints == 0
+        channel_use = sprintf('FORMat:ELEMents CURRent%d',channel);
+        %         else
+        %             channel_use = sprintf('FORMat:ELEMents:TRACe CURRent%d',channel);
+        %         end
+        fprintf(gpib,channel_use);
+        if isBinary
+            fprintf(gpib,'TRACe:CLEar');
+        end
+        fprintf(gpib,'READ?');
+        switch formatData
+            case 'ASCII'
+                current_raw = fgetl2(gpib);
+                current = str2double(current_raw);
+            case 'BIN'
+                fprintf(gpib,'*WAI');
+                current = fread(gpib,numOfPoints,'single');
+                errorCheck(gpib);
+        end
+        offset = offset_arr(channel_idx);
+        current_fix = current - offset;
+        current_fix_arr(channel_idx) = current_fix;
+        current_fix_matrix(sampleNum,channel_idx) = current_fix;
+        sampleNum_arr = 1:sampleNum;
+        channelTime_arr = time_fix_arr(sampleNum_arr);
+        channelCurrent_arr = current_fix_matrix(sampleNum_arr,channel_idx);
+        if isCheckConstant
+            File.Data(channel_idx).Time = channelTime_arr;
+            %             channelCurrent_arr = File.Data(channel_idx).Current;
+            %             channelCurrent_arr_alloc = [channelCurrent_arr;current_fix];
+            %             File.Data(channel_idx).Current = channelCurrent_arr_alloc;
+            File.Data(channel_idx).Current = channelCurrent_arr;
+        else
+            File.StepData(stepNum).Data(channel_idx).Time = channelTime_arr;
+            %             channelCurrent_arr = File.StepData(stepNum).Data(channel_idx).Current;
+            %             channelCurrent_arr_alloc = [channelCurrent_arr;current_fix];
+            %             File.StepData(stepNum).Data(channel_idx).Current = channelCurrent_arr_alloc;
+            File.StepData(stepNum).Data(channel_idx).Current = channelCurrent_arr;
+        end
+    end
+    %     current_fix_matrix_alloc = [current_fix_matrix;current_fix_arr];
+    %     current_fix_matrix = current_fix_matrix_alloc;
+
+    %     data_matrix = getBufferReading2(File);
+    %     for channel_idx = 1:channelSelect_len
+    %         current_arr = data_matrix{channel_idx};
+    %         Data(channel_idx).Current = current_arr;
+    %     end
+
+    if sampleNum > 1
+        samplingPeriod_calc = timestamp2 - timestamp1; %#ok<*NODEF>
+        samplingRate_calc = 1 / samplingPeriod_calc;
+    else
+        samplingPeriod_calc = samplingPeriod;
+        samplingRate_calc = samplingRate;
+    end
+%     samplingPeriod_arr = addToBuffer(samplingPeriod_arr,samplingPeriod_calc);
+%     if sampleNum > samplingPeriod_len
+%         samplingPeriod_calc = round(mean(samplingPeriod_arr),1);
+%         samplingRate_calc = 1/ samplingPeriod_calc;
+%     end
+
+    if ~isCheckSteadyState
+        cycle100 = rem(sampleNum,100);
+        if cycle100 == 0
+            %             clc;
+        end
+    end
+
+    clc;
+    switch expID
+        case 'IT'
+            voltageBias = File.Data.Voltage;
+            if voltageBias == 0
+                fprintf('Voltage Bias: Vbias = %.2f V\n',voltageBias);
+            else
+                fprintf('Voltage Bias: Vbias = %+.2f V\n',voltageBias);
+            end
+        case {'IV','CAP','STEP'}
+            if voltageBias == 0
+                fprintf('Step %d: Vbias = %.2f V\n',stepNum,voltageBias);
+            else
+                fprintf('Step %d: Vbias = %+.2f V\n',stepNum,voltageBias);
+            end
+            %             bufferLength = File.Experiment.Parameters.BufferLength;
+            %             numOfSD = File.Experiment.Parameters.StandardDeviations;
+            %             fprintf('Buffer Length: n = %g\n',bufferLength);
+            %             fprintf('Acceptable Standard Deviation: +/-%g SD\n',numOfSD);
+            %         case {'CAP','STEP'}
+            %             voltageBias = File.StepData(stepNum).VoltageBias;
+            %             if voltageBias == 0
+            %                 fprintf('Step %d: Vbias = %.2f V\n',stepNum,voltageBias);
+            %             else
+            %                 fprintf('Step %d: Vbias = %+.2f V\n',stepNum,voltageBias);
+            %             end
+    end
+    fprintf('Samples: N = %d\n',sampleNum);
+    %     fprintf('Sample Time: t = %f s\n',timestamp2);
+    fprintf('Fixed Time: t = %.3f s\n',time_fix);
+    %     latency = abs(time_fix-timestamp2);
+    %     fprintf('Latency: dt = %f s\n',latency);
+    fprintf('Sampling rate: f = %.2f S/s\n',samplingRate_calc);
+
+    File = getProcessing(File);
+    quitStep = File.StepData(stepNum).Completed;
+    if quitStep
+        if isCheckSteadyState
+            fprintf('Steady state found for all channels.\n\n');
+        elseif isCheckTimeStep
+            fprintf('Time step completed for all channels.\n\n');
+        end
+    end
+
+    %% Plot
+%     if checkConstant
+        % Annotation
+        delete(annot);
+        %     sampleTime_s = seconds(time_fixed);
+        sampleTime_s = seconds(timestamp);
+        sampleTime_dur = duration(sampleTime_s);
+        sampleTime_str = string(sampleTime_dur,'hh:mm:ss.SSS');
+        sampleNum_annot = sprintf('{\\itN} = %d',sampleNum);
+        sampleFreq_annot = sprintf('{\\itf}_{s} = %.2f Hz',samplingRate_calc);
+        sampleTime_annot = sprintf('{\\itt} = %s',sampleTime_str);
+        sampleNum_text = sprintf('%s\n%s\n%s', ...
+            sampleNum_annot, ...
+            sampleFreq_annot, ...
+            sampleTime_annot);
+        annot = annotation( ...
+            itPlot, ...
+            'textbox',ANNOT_DIM, ...,
+            'BackgroundColor','w', ...
+            'String',sampleNum_text, ...
+            'FontSize',FONT_SIZE-2, ...
+            'FitBoxToText','on');
+
+        % Plot points
+        delete(trendLine);
+        trendLine = gobjects(1,channelSelect_len);
+        delete(exclude);
+        exclude = gobjects(1,channelSelect_len);
+        for channel_idx = 1:channelSelect_len
+            channelLine = animatedLines(channel_idx);
+            if isvalid(channelLine)
+                current_new = current_fix_arr(channel_idx);
+                set(0,'CurrentFigure',itPlot);
+                addpoints(channelLine,time_fix,current_new);
+                color = MATLAB_COLOR{channel_idx};
+                marker = MARKER_TYPE{channel_idx};
+                hold on;
+                set(0,'CurrentFigure',itPlot);
+                if ~isCheckConstant
+                    if isCheckSteadyState && sampleNum >= bufferLength
+                        start = sampleNum - bufferLength + 1;
+                        %                     start = 1;
+                        sample_arr = start:sampleNum;
+                        time_arr = sample_arr * samplingPeriod;
+                        slope = File.StepData(stepNum).Data(channel_idx).Statistics.Slope;
+                        intercept = File.StepData(stepNum).Data(channel_idx).Statistics.Intercept;
+                        current_calc = polyval([slope intercept],time_arr);
+                        trendLine(channel_idx) = plot(time_arr,current_calc, ...
+                            'LineStyle','--', ...
+                            'Color',color, ...
+                            'LineWidth',1.5); %#ok<*NASGU>
+                    elseif isCheckTimeStep
+                        channelCurrentAvg = File.StepData(stepNum).Data(channel_idx).Statistics.Mean;
+                        %                     sample_arr = 1:sampleNum;
+                        %                     time_arr = sample_arr * samplingPeriod;
+                        %                     trend = ones(sampleNum,1) * channelCurrentAvg;
+                        trendLine(channel_idx) = yline(channelCurrentAvg, ...
+                            'LineStyle','--', ...
+                            'Color',color, ...
+                            'LineWidth',1); %#ok<*AGROW>
+                    end
+                end
+                exclude_idx = File.StepData(stepNum).Data(channel_idx).Statistics.Exclude.Index;
+                if ~isempty(exclude_idx)
+                    exclude_time = File.StepData(stepNum).Data(channel_idx).Statistics.Exclude.Time;
+                    exclude_current = File.StepData(stepNum).Data(channel_idx).Statistics.Exclude.Current;
+                    if (isCheckSteadyState && sampleNum > bufferLength) || isCheckTimeStep
+                        exclude(channel_idx) = scatter( ...
+                            exclude_time,exclude_current,72, ...
+                            'Marker',marker, ...
+                            'LineWidth',0.75, ...
+                            'MarkerEdgeColor','k', ...
+                            'MarkerFaceColor','none');
+%                         drawnow;
+                    end
+                end
+            end
+            hold off;
+%             drawnow;
+        end
+
+        if ~ishandle(buttonHandleCT)
+            fprintf('Experiment canceled by user...');
+            File.Experiment.Quit = true;
+            break;
+        end
+
+%     end
+    isAtCompliance = all(current_fix_arr > MAX_CURRENT);
+    isAtOverflow = all(current_fix_arr > OVERFLOW);
+    if isAtCompliance || isAtOverflow
+        fprintf('All channels reached compliance (20 mA).\n');
+        fprintf('Experiment terminating...');
+        File.Experiment.Quit = true;
+        break;
+    end
+
+    if sampleNum >= bufferLength && isCheckTimeStep
+        File.StepData(stepNum).Completed = true;
+    end
+    cycle10 = rem(sampleNum,10);
+    if cycle10 == 0
+        try
+            if checkConstant
+                Data = File.Data;
+            else
+                Data = File.StepData(stepNum);
+            end
+            save(tempFile,'Data');
+        catch
+        end
+    end
+
+    if ~isCheckConstant
+        quitStep = File.StepData(stepNum).Completed;
+        if quitStep
+            break;
+        else
+            timestamp1 = timestamp2;
+            %             waitfor(samplingRateControl);
+            samplingPeriod_check = time_fix + samplingPeriod * 0.9;
+            while toc(startTime) - timeOffset < samplingPeriod_check
+                %                 pause(0.001);
+            end
+
+        end
+    end
+end
+
+% End
+[endTime,unit] = getEndTime(startTime);
+delete(buttonHandleCT);
+drawnow;
+quitExp = File.Experiment.Quit;
+if ~quitExp
+    isQuit_char = 'completed';
+else
+    fprintf('OK\n');
+    isQuit_char = 'canceled';
+end
+fprintf('Current vs. Time %s: %.2f %s\n\n',isQuit_char,endTime,unit);
+
+dateTimeEnd = getDateTime();
+for channel_idx = 1:channelSelect_len
+    if isCheckConstant
+        File.Data(channel_idx).DateTimeEnd = dateTimeEnd;
+    else
+        File.StepData(stepNum).Data(channel_idx).DateTimeEnd = dateTimeEnd;
+    end
+end
+
+delete(tempFile);
+
+end

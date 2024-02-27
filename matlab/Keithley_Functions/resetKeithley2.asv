@@ -1,0 +1,16 @@
+function [] = resetKeithley2(File)
+%% Constants
+MAX_NUM_OF_GPIB = 6;
+
+%% Variables
+gpib = File.Instrument.Object;
+
+%% Function
+for gpibNum = 1:MAX_NUM_OF_GPIB
+    fprintf('Reseting GPIB%02d...',gpibNum);
+    device = gpib(gpibNum);
+    fprintf(device,'*RST');
+    fprintf('OK.\n');
+end
+
+end

@@ -1,0 +1,247 @@
+function File = getProcessing(File)
+%% Constants
+TABLE_HEADING = {...
+    'Channel',...
+    'Current (A)',...
+    'Slope (A/n)',...
+    'Mean (A)',...
+    '+/-SD (A)'};
+TABLE_HEADING_IV = {...
+    'Channel',...
+    'Current (A)',...
+    'Steady State (A)',...
+    'Slope (A/n)',...
+    'Percentage Rate of Change (%)',...
+    'Mean (A)',...
+    '+/-SD (A)'};
+
+%% Variables
+expID = File.Experiment.ID;
+isCheckConstant = contains2(expID,'IT');
+isCheckSteadyState = contains2(expID,'IV');
+channelSelect = File.Experiment.Channels.Number;
+channelName_arr = File.Experiment.Channels.Name;
+channelName_cell = cellstr(channelName_arr);
+channelSelect_len = length(channelSelect);
+if ~isCheckConstant
+    stepNum = length(File.StepData);
+    sampleNum = File.Instrument.Processing(stepNum).NumberOfSamples;
+    buffer_mat = File.Instrument.Processing(stepNum).Buffer;
+    samplingPeriod = File.Instrument.Settings.Speed.SamplingPeriod;
+end
+
+latestCurrent_arr = zeros(1,channelSelect_len);
+slope_arr = zeros(1,channelSelect_len);
+intercept_arr = zeros(1,channelSelect_len);
+regression_arr = zeros(1,channelSelect_len);
+mean_arr = zeros(1,channelSelect_len);
+sd_arr = zeros(1,channelSelect_len);
+
+%% Determine Experiment
+expID = File.Experiment.ID;
+if isCheckSteadyState
+    bufferLength = File.Experiment.Parameters.BufferLength;
+    numOfSD = File.Experiment.Parameters.StandardDeviations;
+    % Steady state
+    processed_arr = File.Instrument.Processing(stepNum).Values;
+%     processed_arr = processed_mat(stepNum,:);
+    steadyStateString_arr = string(processed_arr);
+    steadyStateString_arr_zero = contains2(steadyStateString_arr,"0");
+    steadyStateString_arr(steadyStateString_arr_zero) = "";
+    % Slope
+    steadyStateSlope_arr = zeros(1,channelSelect_len);
+    percent_arr = zeros(1,channelSelect_len);
+    percentString_arr = strings(1,channelSelect_len);
+elseif ~isCheckConstant && ~isCheckSteadyState
+    bufferLength = File.Experiment.Parameters.BufferLength;
+    numOfSD = 3;
+end
+
+%% Get latest values
+for channel_idx = 1:channelSelect_len
+    if isCheckConstant
+        channelCurrent = File.Data(channel_idx).Current;
+    else
+        channelCurrent = File.StepData(stepNum).Data(channel_idx).Current;
+    end
+    latestCurrent_arr(channel_idx) = channelCurrent(sampleNum);
+end
+
+%% Check buffer
+% Add data point to buffer
+if sampleNum > bufferLength
+    start = sampleNum - bufferLength + 1;
+    sample_arr = start:sampleNum;
+    % Shift buffer
+%     buffer_mat(1:bufferLength-1,:) = buffer_mat(2:bufferLength,:);
+%     buffer_mat(bufferLength,:) = latestCurrent_arr;
+    % Delete first index in buffer
+%     buffer_mat(1,:) = [];
+else
+    sample_arr = 1:sampleNum;
+%     buffer_mat(sampleNum,:) = latestCurrent_arr;
+    % buffer_mat(sampleNum,:) = latestCurrent_arr;
+    % buffer_mat_alloc = [buffer_mat;latestCurrent_arr];
+    % buffer_mat = buffer_mat_alloc;
+end
+buffer_mat = addToBuffer(buffer_mat,latestCurrent_arr);
+File.Instrument.Processing(stepNum).Buffer = buffer_mat;
+
+%% Process buffer
+for channel_idx = 1:channelSelect_len
+    % Channel buffer
+    channelBuffer_raw = buffer_mat(:,channel_idx);
+    channelBuffer_idx = find(channelBuffer_raw);
+    channelBuffer = channelBuffer_raw(channelBuffer_idx); %#ok<*FNDSB> 
+    % Time
+    time_arr = (sample_arr - 1) * samplingPeriod;
+    % Average
+    avg = mean(channelBuffer);
+    sd = std(channelBuffer);
+    acceptable = numOfSD * sd;
+    maxAcceptable = avg + acceptable;
+    minAcceptable = avg - acceptable;
+%     tooHigh_idx = find(channelBuffer > maxAcceptable);
+%     tooLow_idx = find(channelBuffer < minAcceptable);
+%     exclude_idx_raw = [tooHigh_idx;tooLow_idx];
+%     exclude_idx = sort(exclude_idx_raw);
+    tooHigh_tf = channelBuffer > maxAcceptable;
+    tooLow_tf = channelBuffer < minAcceptable;
+    exclude_tf = tooHigh_tf | tooLow_tf;
+    exclude_idx = find(exclude_tf);
+    if contains2(expID,'IT')
+        File.Data(channel_idx).Statistics.Exclude.Index = exclude_idx;
+        File.Data(channel_idx).Statistics.Exclude.Time = time_arr(exclude_idx);
+        File.Data(channel_idx).Statistics.Exclude.Current = channelBuffer(exclude_idx);
+    else
+        File.StepData(stepNum).Data(channel_idx).Statistics.Exclude.Index = exclude_idx;
+        File.StepData(stepNum).Data(channel_idx).Statistics.Exclude.Time = time_arr(exclude_idx);
+        File.StepData(stepNum).Data(channel_idx).Statistics.Exclude.Current = channelBuffer(exclude_idx);
+    end
+
+    if ~isempty(exclude_idx)
+        channelBuffer(exclude_idx) = [];
+        time_arr(exclude_idx) = [];
+        avg = mean(channelBuffer);
+        sd = std(channelBuffer);
+    end
+
+    % Capture steady state
+    mean_arr(channel_idx) = avg;
+    sd_arr(channel_idx) = sd;
+    % Linear regression
+    % trendline
+    [slope,intercept,r2] = getLinReg(time_arr,channelBuffer);
+%     slope_mag = abs(slope);
+    slope_arr(channel_idx) = slope;
+    intercept_arr(channel_idx) = intercept;
+    regression_arr(channel_idx) = r2;
+    if isCheckSteadyState
+        if sampleNum > bufferLength
+%             slope_mag = abs(slope);
+%             slope_pow = floor(log10(slope_mag));
+%             avg_mag = abs(avg);
+%             avg_pow = floor(log10(avg_mag));               % current order of magnitude
+            steadyStateSlope_arr(channel_idx) = slope;
+            pow_check = 4;
+            percent_check = 10^(2 - pow_check);
+%             slope_check = 10^(avg_pow - pow_check);
+            percent = slope / avg * 100;
+            percent_mag = abs(percent);
+            percent_arr(channel_idx) = percent;
+            isPercentSmall = percent_mag < percent_check;
+            percentString_arr(channel_idx) = sprintf('%.3f',percent);
+%             isSteadyState = slope_mag < slope_check && steadyStateSlope ~= 0 && avg ~= 0
+            isSteadyState = isPercentSmall;
+%             if isPercentSmall
+%                 percentString_arr(channel_idx) = sprintf('*%.3f*',percent);
+%             else
+%                 percentString_arr(channel_idx) = sprintf('%.3f',percent);
+%             end
+            if isSteadyState
+                slope_arr(channel_idx) = slope;
+                intercept_arr(channel_idx) = intercept;
+                regression_arr(channel_idx) = r2;
+                processed_arr(channel_idx) = avg;
+                File.Data(channel_idx).Current(stepNum) = avg;
+                steadyStateString_arr(channel_idx) = sprintf('%e',avg);
+            else
+                try
+                    slope_old = File.StepData(stepNum).Data(channel_idx).Statistics.Slope;
+                    intercept_old = File.StepData(stepNum).Data(channel_idx).Statistics.Intercept;
+                    r2_old = File.StepData(stepNum).Data(channel_idx).Statistics.Regression;
+                    if any(slope_old)
+                        slope = slope_old;
+                        intercept = intercept_old;
+                        r2 = r2_old;
+                        slope_arr(channel_idx) = slope;
+                        intercept_arr(channel_idx) = intercept;
+                        regression_arr(channel_idx) = r2;
+                    end
+                catch
+                end
+                try
+                    avg_old = File.Data(channel_idx).Current(stepNum);
+                    if any(avg_old)
+                        avg = avg_old;
+                        processed_arr(channel_idx) = avg;
+                        File.Data(channel_idx).Current(stepNum) = avg;
+                        steadyStateString_arr(channel_idx) = sprintf('%e',avg);
+                        isSteadyState = true;
+                    end
+                catch
+                end
+            end
+            if isSteadyState
+                channelName = channelName_arr(channel_idx);
+                channelName_cell{channel_idx} = ['*' channelName '*'];
+            end
+        end
+    end
+
+    if contains2(expID,'IT')
+        File.Data(channel_idx).Statistics.Buffer = channelBuffer;
+        File.Data(channel_idx).Statistics.Mean = avg;
+        File.Data(channel_idx).Statistics.StandardDeviations = sd;
+        File.Data(channel_idx).Statistics.Slope = slope;
+        File.Data(channel_idx).Statistics.Intercept = intercept;
+        File.Data(channel_idx).Statistics.Regression = r2;
+    else
+        File.StepData(stepNum).Data(channel_idx).Statistics.Buffer = channelBuffer;
+        File.StepData(stepNum).Data(channel_idx).Statistics.Mean = avg;
+        File.StepData(stepNum).Data(channel_idx).Statistics.StandardDeviations = sd;
+        File.StepData(stepNum).Data(channel_idx).Statistics.Slope = slope;
+        File.StepData(stepNum).Data(channel_idx).Statistics.Intercept = intercept;
+        File.StepData(stepNum).Data(channel_idx).Statistics.Regression = r2;
+    end
+end
+
+if isCheckSteadyState
+    if all(processed_arr)
+        File.StepData(stepNum).Completed = true;
+        File.Experiment.Quit = false;
+    end
+    % Print table
+    fullTable = table(...
+        channelName_cell,...
+        round(latestCurrent_arr,2,'significant')',...
+        round(processed_arr,2,'significant')',...
+        round(steadyStateSlope_arr,2,'significant')',...
+        round(percent_arr,3)',...
+        round(mean_arr,2,'significant')',...
+        round(sd_arr,2,'significant')',...
+        'VariableNames',TABLE_HEADING_IV);
+    File.Instrument.Processing(stepNum).Values = processed_arr;   
+else
+    % Print table
+    fullTable = table(...
+        channelName_cell,...
+        round(latestCurrent_arr,2,'significant')',...
+        round(slope_arr,2,'significant')',...
+        round(mean_arr,2,'significant')',...
+        round(sd_arr,2,'significant')',...
+        'VariableNames',TABLE_HEADING);
+end
+disp(fullTable);
+
+end
