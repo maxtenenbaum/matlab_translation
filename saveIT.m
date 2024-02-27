@@ -1,0 +1,191 @@
+%% Saving data
+function [ct_mat,it_xlsx] = saveIT(File,itPlot)
+%% Constants
+% Values
+% DIR_ERR_ID = 'MATLAB:save:noParentDir';
+% FILE_OPEN_ERR_ID = 'MATLAB:invalidType';
+% Output
+CHANNEL_TABLE_HEADING = {...            % heading
+    'Time (s)',...              % time
+    'Current (A)',...           % leakage current
+    'Start Date and Time',...   % end date and time
+    'End Date and Time'};       % end date and time
+
+%% Variables
+expID = File.Experiment.ID;
+notebook = File.Notebook;
+subjectName = File.Subject;
+channelSelect = File.Experiment.Channels.Number;
+channelNameList = File.Experiment.Channels.Name;
+channelSelect_len = length(channelSelect);
+savePath = File.Path;
+numOfSteps = File.Experiment.Parameters.NumberOfSteps;
+if ~strcmpi(expID,'IT')
+    stepNum = length(File.StepData);
+    voltageBias = File.StepData(stepNum).VoltageBias;
+    Data = File.StepData.Data;
+else
+    voltageBias = File.Experiment.Parameters.VoltageBias;
+    Data = File.Data;
+end
+it_xlsx = [];
+% [structIT_name] = getVarName(Data);
+data = Data(1).Time;  	% time data array
+% [numOfRepeats,~] = size(data);
+% if numOfRepeats > 1
+%     data_len = length(data(1));
+% else
+data_len = length(data);
+% end
+current_mat = zeros(data_len,channelSelect_len);
+
+%% Function
+fprintf('Saving IT data...\n');
+
+try
+    folderPath = fullfile(savePath,expID);
+    status = mkdir(folderPath);
+catch
+end
+
+% Starting filename
+subjectName_char = sprintf('%s_%s',notebook,subjectName);
+if voltageBias == 0
+    voltageBias_char = sprintf('%05.2fV',voltageBias);
+else
+    voltageBias_char = sprintf('%+05.2fV',voltageBias);
+end
+% hasPlus = contains(voltageBias_char,'+');
+% if hasPlus == true
+%     voltageBias_char = strrep(voltageBias_char,'+','pos');
+% end
+% hasMinus = contains(voltageBias_char,'-');
+% if hasMinus == true
+%     voltageBias_char = strrep(voltageBias_char,'-','neg');
+% end
+logNumOfSteps = log10(numOfSteps);
+numOfDigits = floor(logNumOfSteps) + 1;
+if numOfSteps == 0 || numOfDigits == 0
+    filename_char = append(...
+        subjectName_char,'_',...
+        expID,'_',...
+        voltageBias_char);
+else
+    switch numOfDigits
+        case 1
+            stepNum_char = sprintf('Step%01d',stepNum);
+        case 2
+            stepNum_char = sprintf('Step%02d',stepNum);
+        case 3
+            stepNum_char = sprintf('Step%03d',stepNum);
+        case 4
+            stepNum_char = sprintf('Step%04d',stepNum);
+    end
+    filename_char = append(...
+        subjectName_char,'_',....
+        expID,'_',...
+        stepNum_char,'_',...
+        voltageBias_char);
+end
+
+% Making .mat file
+filename_mat = append(filename_char,'.mat');            % filename for .mat file
+ct_mat = fullfile(savePath,expID,filename_mat);   % save path for .mat file
+% count = 2;
+% while exist(ct_mat,'file')
+%     count_char = sprintf('_%d',count);
+%     filename_mat = append(filename_char,count_char,'.mat');       	% filename for .mat file
+%     ct_mat = fullfile(savePath,expID,filename_mat);  % save path for .mat file
+%     count = count + 1;
+% end
+save(ct_mat);               % save .mat file
+%         removeFig(filename_mat_save);
+fprintf('%s\n',filename_mat);                         % .mat file saved
+
+% Making spreadsheet files
+%         if numOfRepeats == 1
+filename_xlsx = append(filename_char,'.xlsx');    	% filename for .xlsx file
+filename_xlsx_save = fullfile(savePath,expID,filename_xlsx);% save path for .xlsx file
+ct_save_alloc = [it_xlsx;filename_xlsx_save];
+it_xlsx = ct_save_alloc;
+
+% All
+allTableHeading = {'Time (s)'};  % time
+for channel_idx = 1:channelSelect_len
+    channelName_char = channelNameList(channel_idx);
+    channelName = sprintf('%s (A)',channelName_char);
+    allTableHeading{end+1} = channelName;
+    % capture data of channel
+    time_data_raw = Data(channel_idx).Time;
+    time_data = zeros(data_len,1);
+    time_data(:) = time_data_raw(:);                       % time data array
+
+%     current_data_raw = Data(channel_idx).Current;
+%     current_data = zeros(data_len,1);
+%     current_data(:) = current_data_raw(:);                 % current data array
+    current_data = Data(channel_idx).Current;
+    current_mat(:,channel_idx) = current_data;          % leakage current matrix
+end
+
+% data table
+compiledMat = [time_data,current_mat];
+compiledTable = array2table(...                             % table
+    compiledMat,...
+    'VariableNames',allTableHeading);
+writetable(compiledTable,filename_xlsx_save,'Sheet','ALL'); % save sheet to .xlsx fil
+
+for channel_idx = 1:channelSelect_len
+    channelName_char = channelNameList(channel_idx);
+    % Capture data of channel
+    time_data_raw = Data(channel_idx).Time;
+    time_data = zeros(data_len,1);
+    time_data(:) = time_data_raw(:);                       % time data array
+    current_data_raw = Data(channel_idx).Current;
+    current_data = zeros(data_len,1);
+    current_data(:) = current_data_raw(:);                 % current data array
+    dateTimeStart_point = Data(channel_idx).DateTimeStart;
+    dateTimeEnd_point = Data(channel_idx).DateTimeEnd;     	% date and time completed
+
+    % Data table
+    stringArray = strings(data_len,1);
+    dateTimeStart_data = stringArray;
+    dateTimeStart_data(1) = dateTimeStart_point;
+    dateTimeEnd_data = stringArray;
+    dateTimeEnd_data(1) = dateTimeEnd_point;
+    tableData = table(...               % table
+        time_data,...                   % time
+        current_data,...     	% leakage current
+        dateTimeStart_data,...          % start date and time
+        dateTimeEnd_data,...            % end date and time
+        'VariableNames',CHANNEL_TABLE_HEADING);
+
+    %     % Make filename for .csv file
+    %     filename_csv_char = sprintf('%s_%s.csv',filename_char,channelName_char);% filename for .csv file (char)
+    %     filename_csv = convertCharsToStrings(filename_csv_char);            	% filename string for .csv file (string)
+    %     filename_csv_save = fullfile(savePath,filename_csv);               	% save path for .csv file
+
+    % Save spreadsheets
+    %     writetable(tableData,filename_csv_save);                            % save .csv file
+    %     fprintf('%s\n',filename_csv);                                       % .csv file saved
+    writetable(tableData,filename_xlsx_save,'Sheet',channelName_char);  % save sheet to .xlsx file
+end
+fprintf('%s\n',filename_xlsx);	% .xlsx file saved
+
+% Figure
+if ~isempty(itPlot)
+    filename_fig = append(filename_char,'.tif');
+    filename_tif = fullfile(savePath,expID,filename_fig);
+    % count = 2;
+    % while exist(filename_tif,'file')
+    %     count_char = sprintf('_%d',count);
+    %     filename_fig = append(filename_char,count_char,'.tif');
+    %     filename_tif = fullfile(savePath,expID,filename_fig);
+    %     count = count + 1;
+    % end
+    print(itPlot,'-dtiffn',filename_tif);
+    fprintf('%s\n',filename_fig);
+end
+
+fprintf('All files saved.\n');  % all spreadsheet files saved
+
+end

@@ -1,0 +1,44 @@
+function File = setFormat(File,formatChoice)
+%% Constants
+ASCII = 'ASCii';
+NORMAL = 'NORMal';
+SWAPPED = 'SWAPped';
+MAX_NUM_OF_GPIB = 6;
+
+%% Variables
+gpib_arr = File.Instrument.Object;
+
+%% Function
+fprintf('Setting data format...');
+
+switch upper(formatChoice)
+    case {'ASCII','ASC','CHAR','STR','STRING','STRINGS'}
+        type = 'ASCII';
+        formatData = 'ASCii';
+    case {'BIN','BINARY'}
+        type = 'BIN';
+        formatData = 'REAL,32';
+        gpib1 = gpib_arr(1);
+        byteOrder = gpib1.ByteOrder;
+        switch byteOrder
+            case 'littleEndian'
+
+            case 'bigEndian'
+
+        end
+end
+
+formatData_use = sprintf('FORMat:DATA %s',formatData);
+byOrder_use = sprintf('FORMat:BORDer %s',bytOrder);
+for gpibNum = 1:MAX_NUM_OF_GPIB
+    gpib = gpib_arr(gpibNum);
+    fprintf(gpib,formatData_use);
+    if strcmpi(type,'BIN')
+        fprintf(gpib,byOrder_use);
+    end
+end
+File.Instrument.Settings.Format = type;
+
+fprintf('%s\n',type);
+
+end
