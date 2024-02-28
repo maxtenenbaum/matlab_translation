@@ -34,7 +34,7 @@ resource_input = input("Which source would you like to use: ")
 resource_selection = source_options[int(resource_input)-1]
 
 # Open selected resource
-instance = rm.open_resource(resource_selection, send_end=False, delay=1.2)
+instance = rm.open_resource(resource_selection)
 
 # Initialize device
 print(instance)
