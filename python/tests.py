@@ -17,3 +17,15 @@ resource_selection = source_options[int(resource_input)-1]
 
 # Open selected resource
 instance = rm.open_resource(resource_selection)
+
+# Initialize device
+print(instance)
+instance.read_termination = '\r' # MAY NEED TO CHANGE - ENSURE THAT DEVICE TERMINATOR IS SAME
+instance.write_termination = '\r' 
+instance.baud_rate = 9600
+#instance.query_delay = 5
+instance.query("*IDN?")
+
+
+
+
