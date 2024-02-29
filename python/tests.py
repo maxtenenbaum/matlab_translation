@@ -1,55 +1,54 @@
 import pyvisa
 import time
-"""
-This code currently works to connect to Keithley through RS-232 communication
-
-Working:
-Initialize resource manager
-List available resources
-Select and open resource
-
-Issues:
-I/O communication most likely due to problems with terminator
-6485 says line feed - "\n" is the terminator
-
-Currently implemented read_bytes() function in order to read out the actual bytes being read by computer
-- Last read byte should be the terminator
-"""
-
-
-
+from functions import print_heading
 
 # Initialize the VISA resource manager
 rm = pyvisa.ResourceManager()
 
-# List all connected instruments and append options
-print("Available Instruments:")
-source_options = []
-for sources in rm.list_resources():
-    source_options.append(sources)
-    print(f"{rm.list_resources().index(sources)+1}. {sources}")
+# List all connected instruments
+print_heading("Available Instruments")
+source_options = rm.list_resources()
+for index, source in enumerate(source_options, start=1):
+    print(f"{index}. {source}")
 
 # Prompt and select source
-resource_input = input("Which source would you like to use: ")
-resource_selection = source_options[int(resource_input)-1]
+while True:
+    try:
+        resource_input = input("\nSelect the source number: ")
+        resource_selection = source_options[int(resource_input)-1]
+        break
+    except (ValueError, IndexError):
+        print("Invalid selection. Please enter a valid number.")
 
 # Open selected resource
 instance = rm.open_resource(resource_selection)
-
-# Initialize device
-print(instance)
-"""instance.read_termination = '\n' # LINE FEED TERMINATOR
-instance.write_termination = '\n' 
+instance.read_termination = '\r'
 instance.baud_rate = 9600
-instance.query_delay = 5
 instance.write("*RST")
-instance.query("*IDN?")"""
 
-# Testing read_bytes() 
-instance.write('*IDN?')
-while True:
-    print(instance.read_bytes(1))
+print_heading("Connection Success")
+print("Instrument ID:", instance.query("*IDN?").strip())
 
+# Line Frequency
+print("\nLine Frequency:", instance.query("SYST:LFR?").strip(), "Hz")
 
+# Set Autozero
+autozero_set = ''
+while autozero_set not in ['Y', 'n']:
+    autozero_set = input("\nEnable autozero? (Y/n): ").strip()
+    if autozero_set == 'Y':
+        instance.write("SYST:AZER ON")
+        print("Autozero Enabled")
+    elif autozero_set == 'n':
+        instance.write("SYST:AZER OFF")
+        print("Autozero Disabled")
+    else:
+        print("Invalid input. Please enter 'Y' for Yes or 'n' for No.")
 
+autozero_check = instance.query("SYST:AZER?").strip()
+autozero_stat = "ON" if autozero_check == '1' else "OFF"
+print("\nAutozero set to:", autozero_stat)
+
+#print_heading("Select an experiment")
+print("Test experiment")
 
