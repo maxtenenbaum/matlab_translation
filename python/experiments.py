@@ -54,7 +54,7 @@ def current_measurements(instance):
     instance.write("CURR:RANG:AUTO ON")
     instance.write("SYST:ZCH OFF")
 
-    print("Shutting off display for higher performance...")
+    print("\nShutting off display for higher performance...")
     time.sleep(2)
     instance.write("DISP:ENAB OFF")
 
@@ -78,4 +78,40 @@ def current_measurements(instance):
     data = pd.concat([data, pd.DataFrame(rows)], ignore_index=True)
     print(data)
     return(data)
-    
+
+def single_current_measurement(instance):
+    instance.write("*RST")
+    instance.write("SYST:ZCH ON")
+    instance.write("CURR:RANG 2e-9")
+    #@@ -57,13 +53,29 @@ def single_current_measurement(instance):
+    instance.write("SYST:ZCOR ON")
+    instance.write("CURR:RANG:AUTO ON")
+    instance.write("SYST:ZCH OFF")
+    instance.query("READ?")
+
+"""
+    print("Shutting off display for higher performance...")
+    time.sleep(2)
+    instance.write("DISP:ENAB OFF")
+
+    time_interval = 1 / float(sampfreq)
+
+    start_time = time.time()
+    rows = []  # List to store each row before concatenation
+
+    for i in range(n_cycles):
+        current_str = instance.query("READ?").split(',')[0]
+        current = float(current_str[1:-1])
+
+        resistance = input_voltage / current if current != 0 else None
+
+        elapsed_time = time.time() - start_time
+
+        rows.append({'Elapsed Time (s)': elapsed_time, 'Current (A)': current, 'Resistance (Ohm)': resistance})
+
+        time.sleep(time_interval)
+
+    data = pd.concat([data, pd.DataFrame(rows)], ignore_index=True)
+    print(data)
+    return(data)
+    """
