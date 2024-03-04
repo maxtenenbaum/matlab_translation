@@ -1,7 +1,7 @@
 import pyvisa
 from functions import print_heading, list_experiments
-from experiments import current_measurements, test_func
-
+from experiments import current_measurements, test_func, single_current_measurement
+import pandas as pd
 # Initiate resource manager
 rm = pyvisa.ResourceManager()
 
@@ -40,11 +40,13 @@ list_experiments(experiments)
 exp_choice = input("\nExperiment Selection: ")
 
 if exp_choice == str(1):
-    experiments["Single Shot Current"]()
+    experiments["Single Shot Current"](instance)
 elif exp_choice == str(2):
     experiments["Current Measurements"](instance)
 else:
     print("Not an experiment")
 
+instance.write("DISP:ENAB ON")
+instance.write("*RST")
 
 
