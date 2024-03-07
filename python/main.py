@@ -40,7 +40,8 @@ list_experiments(experiments)
 exp_choice = input("\nExperiment Selection: ")
 
 if exp_choice == str(1):
-    experiments["Single Shot Current"](instance)
+    #experiments["Single Shot Current"](instance)
+    current_data = current_measurements(instance)
 elif exp_choice == str(2):
     experiments["Current Measurements"](instance)
 else:
@@ -48,5 +49,6 @@ else:
 
 instance.write("DISP:ENAB ON")
 instance.write("*RST")
+
 
 
