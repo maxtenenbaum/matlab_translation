@@ -43,7 +43,8 @@ def current_measurements(instance):
     input_voltage = float(input("\nWhat voltage is being supplied: "))
     n_cycles = int(input("\nHow many measurements to take: "))
     sampfreq = float(input("\nHow many tests per second: "))
-
+    filename = input("\nWhat would you like to name your file: ")
+    csv_file_path = (f"output/{filename}.csv")
     instance.write("*RST")
     instance.write("SYST:ZCH ON")
     instance.write("CURR:RANG 2e-9")
@@ -75,9 +76,19 @@ def current_measurements(instance):
         
         time.sleep(time_interval)
 
-    data = pd.concat([data, pd.DataFrame(rows)], ignore_index=True)
-    print(data)
-    return(data)
+    dataframe = pd.concat([data, pd.DataFrame(rows)], ignore_index=True)
+    dataframe.to_csv(f"output/{filename}.csv", index=False)
+    print(f"Data saved to {filename}")
+    return dataframe
+
+def voltage_step_current_measurement(instance, csv_path_output='output'):
+    pass
+
+
+
+
+
+
 
 def single_current_measurement(instance):
     instance.write("*RST")

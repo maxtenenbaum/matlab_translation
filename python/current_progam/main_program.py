@@ -1,5 +1,7 @@
 import pyvisa
+from classes import InstrumentManager, ExperimentRunner, DataAnalyzer, DataViz
 from experiments import single_current_measurement, current_measurements
+import matplotlib.pyplot as plt
 
 experiments = {
     "Single Current Snapshot":single_current_measurement,
@@ -10,14 +12,24 @@ experiments = {
 rm = pyvisa.ResourceManager()
 instrument_manager = InstrumentManager(rm)
 instrument_manager.list_instruments()
-instrument_manager.select_instruments()
+instrument_manager.select_instrument()
 instrument = instrument_manager.get_instrument()
 
 # Experiment
 experiment_runner = ExperimentRunner(experiments)
 experiment_runner.list_experiments()
-experiment_runner.run_experiment(instrument)
+dataframe = experiment_runner.run_experiment(instrument)
 
+# Data analysis
+"""if dataframe is not None:
+    analyzer = DataAnalyzer(dataframe)
+    analyzer.perform_analysis()
+
+# Data visualization
+if dataframe is not None:
+    plotter = DataViz(dataframe)
+    plotter.plot_data(dataframe)
+"""
 # Cleanup
 instrument.write("DISP:ENAB ON")
 instrument.write("*RST")

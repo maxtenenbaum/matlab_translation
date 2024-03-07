@@ -2,3 +2,5 @@ pyvisa
 pyvisa-py
 tkinter
 ttkbootstrap
+spidev
+matplotlib
