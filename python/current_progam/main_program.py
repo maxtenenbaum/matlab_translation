@@ -20,6 +20,14 @@ experiment_runner = ExperimentRunner(experiments)
 experiment_runner.list_experiments()
 dataframe = experiment_runner.run_experiment(instrument)
 
+# Next Steps
+
+
+plot_prompt = input("Would you like to plot the data (y/n)")
+if plot_prompt == 'y':
+    plotter = DataViz(dataframe)
+    plotter.plot_data(dataframe)
+
 # Data analysis
 """if dataframe is not None:
     analyzer = DataAnalyzer(dataframe)

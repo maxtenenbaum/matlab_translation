@@ -3,9 +3,6 @@ from functions import zero_check_and_corr
 import time
 import pandas as pd
 
-def test_func():
-    print("test")
-
 # Current measurement experiment
 def current_measurements(instance):
     """
@@ -37,7 +34,7 @@ def current_measurements(instance):
     Prompt to turn power source
     Disable zero check
     """
-    #print("\nPlease ensure that power source is off...")
+    
     data = pd.DataFrame(columns=['Elapsed Time (s)', 'Current (A)', 'Resistance (Ohm)'])
 
     input_voltage = float(input("\nWhat voltage is being supplied: "))
@@ -94,7 +91,6 @@ def single_current_measurement(instance):
     instance.write("*RST")
     instance.write("SYST:ZCH ON")
     instance.write("CURR:RANG 2e-9")
-    #@@ -57,13 +53,29 @@ def single_current_measurement(instance):
     instance.write("SYST:ZCOR ON")
     instance.write("CURR:RANG:AUTO ON")
     instance.write("SYST:ZCH OFF")

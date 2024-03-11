@@ -68,14 +68,15 @@ class DataAnalyzer:
 
 
 class DataViz:
-    def __init__(self, dataframe):
+    def __init__(self, dataframe, filename):
         self.dataframe = dataframe
+        self.filename = input("\nWhat would you like to name your plot: ")
 
     def plot_data(self, dataframe):
         plt.figure(figsize=(10, 6))
         plt.plot(self.dataframe['Elapsed Time (s)'], self.dataframe['Current (A)'], marker='o')
         plt.title('Current vs Elapsed Time')
         plt.xlabel('Elapsed Time (s)')
-        plt.ylabel('Current (A)')
+        plt.ylabel('Current (A)') 
         plt.grid(True)
         plt.savefig(f'output/plot.png', dpi=300)
